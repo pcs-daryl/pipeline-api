@@ -38,61 +38,24 @@ func main() {
 	router.Run(":8080")
 }
 
-// MapEdgesBySource groups edges by their source
-func MapEdgesBySource(edges []model.Edge) map[string][]map[string]string {
-	edgeMap := make(map[string][]map[string]string)
-
-	for _, edge := range edges {
-		// Create a new map for id and target
-		edgeInfo := map[string]string{
-			"id":     edge.ID,
-			"target": edge.Target,
-		}
-
-		// Append the edge information to the slice for the corresponding source
-		edgeMap[edge.Source] = append(edgeMap[edge.Source], edgeInfo)
-	}
-
-	return edgeMap
-}
-
-// FindNodesWithMultipleOutgoingEdgesAndNeighbors identifies nodes with multiple outgoing edges and their neighbors
-func FindNodesWithMultipleOutgoingEdgesAndNeighbors(nodes []model.Node, edges []model.Edge) map[string][]string {
-	// Map to store outgoing neighbors for each node
-	outgoingNeighbors := make(map[string][]string)
-
-	// Populate the outgoingNeighbors map
-	for _, edge := range edges {
-		outgoingNeighbors[edge.Source] = append(outgoingNeighbors[edge.Source], edge.Target)
-	}
-
-	// Filter nodes with more than one outgoing edge and collect neighbors
-	result := make(map[string][]string)
-	for _, node := range nodes {
-		neighbors := outgoingNeighbors[node.ID]
-		if len(neighbors) > 1 {
-			result[node.ID] = neighbors
-		}
-	}
-
-	return result
-}
-
 // FindNodesWithMultipleOutgoingEdgesAndNeighbors identifies nodes with multiple outgoing edges and their neighbors,
 // and identifies single path nodes (nodes part of chains), excluding already visited nodes.
 func FindNodesWithMultipleOutgoingEdgesAndNeighborsAndSinglePathNodes(
-	nodes []model.Node, edges []model.Edge) (map[string][]string, map[string][]string) {
+	nodes []model.Node, edges []model.Edge) (map[string][]string, [][]string) {
 
 	// Map to store outgoing neighbors for each node
 	outgoingNeighbors := make(map[string][]string)
+	// Map to store incoming neighbors for each node
+	incomingNeighbors := make(map[string][]string)
 	// Map to track nodes with multiple outgoing edges
 	multipleOutgoingEdgesNodes := make(map[string][]string)
-	// Map to store single path nodes
-	singlePathNodes := make(map[string][]string)
+	// Slice to store single path chains
+	var singlePathChains [][]string
 
-	// Populate the outgoingNeighbors map
+	// Populate the outgoingNeighbors and incomingNeighbors maps
 	for _, edge := range edges {
 		outgoingNeighbors[edge.Source] = append(outgoingNeighbors[edge.Source], edge.Target)
+		incomingNeighbors[edge.Target] = append(incomingNeighbors[edge.Target], edge.Source)
 	}
 
 	// Identify nodes with multiple outgoing edges and collect their neighbors
@@ -103,49 +66,53 @@ func FindNodesWithMultipleOutgoingEdgesAndNeighborsAndSinglePathNodes(
 		}
 	}
 
-	// Identify single path nodes (excluding already visited nodes)
-	visited := make(map[string]bool)
+	// Function to traverse a single chain
+	traverseChain := func(startNode string) []string {
+		chain := []string{}
+		currentNode := startNode
+		visited := make(map[string]bool)
+
+		for {
+			// Add the current node to the chain
+			chain = append(chain, currentNode)
+			visited[currentNode] = true
+
+			// Get the next node
+			nextNodes, exists := outgoingNeighbors[currentNode]
+			if !exists || len(nextNodes) != 1 {
+				break // Stop if no outgoing edge or multiple outgoing edges
+			}
+
+			nextNode := nextNodes[0]
+			if visited[nextNode] {
+				break // Prevent infinite loops
+			}
+
+			currentNode = nextNode
+		}
+		return chain
+	}
+
+	// Find all chains starting from nodes with zero or one outgoing edge
+	visitedGlobal := make(map[string]bool)
 	for _, node := range nodes {
-		// Skip nodes already identified as part of multiple outgoing edges
-		if _, found := multipleOutgoingEdgesNodes[node.ID]; found {
+		if visitedGlobal[node.ID] {
 			continue
 		}
 
-		// Track single path nodes (nodes forming a chain)
-		if len(outgoingNeighbors[node.ID]) == 1 && !visited[node.ID] {
-			chain := []string{}
-			currentNode := node.ID
-			// Traverse the chain of nodes with exactly one outgoing edge
-			for {
-				if nextNode, exists := outgoingNeighbors[currentNode]; exists && len(nextNode) == 1 {
-					nextNodeID := nextNode[0]
-					// Skip nodes already in a previous chain (already visited)
-					if visited[nextNodeID] {
-						break
-					}
-					chain = append(chain, nextNodeID)
-					visited[currentNode] = true
-					currentNode = nextNodeID
-				} else {
-					// If no outgoing edge (or multiple edges), we stop the chain
-					break
-				}
-			}
-			// If we found a chain, include all the nodes in the result
-			if len(chain) > 0 {
-				singlePathNodes[node.ID] = chain
-				// Mark all nodes in the chain as visited to prevent future traversal
-				for _, n := range chain {
-					visited[n] = true
-				}
-			}
-		}
+		// Only start chains from nodes with zero or one outgoing edge
+		if len(outgoingNeighbors[node.ID]) <= 1 {
+			chain := traverseChain(node.ID)
 
-		// If a node has no outgoing edges and is not part of a multiple-edge node, it's a single node path
-		if len(outgoingNeighbors[node.ID]) == 0 && !visited[node.ID] {
-			singlePathNodes[node.ID] = []string{} // Add an empty array for nodes with no outgoing edges
+			// Mark all nodes in the chain as globally visited
+			for _, n := range chain {
+				visitedGlobal[n] = true
+			}
+
+			// Add the chain to the result
+			singlePathChains = append(singlePathChains, chain)
 		}
 	}
 
-	return multipleOutgoingEdgesNodes, singlePathNodes
+	return multipleOutgoingEdgesNodes, singlePathChains
 }
