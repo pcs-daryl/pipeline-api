@@ -16,7 +16,7 @@ func TraverseGraph(
 	// Map to track nodes with multiple outgoing edges
 	parallels := make(map[string][]string)
 	// Slice to store single path chains
-	series := [][]string{}
+	sequences := [][]string{}
 
 	// Populate the outgoingNeighbors and incomingNeighbors maps
 	for _, edge := range edges {
@@ -76,8 +76,8 @@ func TraverseGraph(
 			}
 
 			// Add the chain to the result
-			series = append(series, chain)
+			sequences = append(sequences, chain)
 		}
 	}
-	return parallels, series
+	return parallels, sequences
 }

@@ -24,14 +24,14 @@ func main() {
 		}
 
 		// Identify nodes with multiple outgoing edges and their neighbors, and single path nodes
-		multipleOutgoingEdgesNodes, singlePathNodes := helpers.TraverseGraph(
+		parallels, sequences := helpers.TraverseGraph(
 			payload.Nodes, payload.Edges)
 
 		// Respond with the results
 		c.JSON(http.StatusOK, gin.H{
 			"message":                    "success",
-			"multipleOutgoingEdgesNodes": multipleOutgoingEdgesNodes,
-			"singlePathNodes":            singlePathNodes,
+			"parallels": parallels,
+			"sequences": sequences,
 		})
 	})
 

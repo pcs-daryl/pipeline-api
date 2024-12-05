@@ -12,19 +12,19 @@ func getActualOutput(pipelinePayload model.PipelinePayload ) (map[string]interfa
 	nodes := pipelinePayload.Nodes
 	edges := pipelinePayload.Edges
 
-	parallels, series := helpers.TraverseGraph(nodes, edges)
+	parallels, sequences := helpers.TraverseGraph(nodes, edges)
 
 	return map[string]interface{}{
 		"parallels": parallels,
-		"series": series,
+		"sequences": sequences,
 	}
 }
 var _ = Describe("Pipelines", func() {
-	It("should test our first example", func() {
+	It("should test our simple sequence", func() {
 		/*
 			0 -> 1 -> 2 -> 3
 
-			simple example of a series
+			simple example of a sequence
 		*/
 		pipelinePayload := model.PipelinePayload{
 			Nodes: []model.Node{
@@ -42,7 +42,7 @@ var _ = Describe("Pipelines", func() {
 
 		expectedOutput := map[string]interface{}{
 			"parallels": map[string][]string{},
-			"series": [][]string{
+			"sequences": [][]string{
 				{"0", "1", "2", "3"},
 			},
 		}
@@ -53,11 +53,11 @@ var _ = Describe("Pipelines", func() {
 		Expect(actualOutput).To(BeEquivalentTo(expectedOutput))
 	})
 
-	It("should test our second example", func() {
+	It("should test a single node", func() {
 		/*
 			0 
 
-			if we have just one node, it should return a series of just 0
+			if we have just one node, it should return a sequence of just 0
 		*/
 		pipelinePayload := model.PipelinePayload{
 			Nodes: []model.Node{
@@ -68,7 +68,7 @@ var _ = Describe("Pipelines", func() {
 
 		expectedOutput := map[string]interface{}{
 			"parallels": map[string][]string{},
-			"series": [][]string{
+			"sequences": [][]string{
 				{"0"},
 			},
 		}
@@ -79,7 +79,7 @@ var _ = Describe("Pipelines", func() {
 		Expect(actualOutput).To(BeEquivalentTo(expectedOutput))
 	})
 
-	It("should test our third example", func() {
+	It("should test a null example", func() {
 		/*
 			nothing
 			if we pass in nothing, it should return nothing
@@ -91,7 +91,7 @@ var _ = Describe("Pipelines", func() {
 
 		expectedOutput := map[string]interface{}{
 			"parallels": map[string][]string{},
-			"series": [][]string{},
+			"sequences": [][]string{},
 		}
 
 		actualOutput := getActualOutput(pipelinePayload)
@@ -100,7 +100,7 @@ var _ = Describe("Pipelines", func() {
 		Expect(actualOutput).To(BeEquivalentTo(expectedOutput))
 	})
 
-	It("should test our fourth example", func() {
+	It("should test a more complicated tree", func() {
 		/*
 				 4
 				 ^
@@ -144,10 +144,65 @@ var _ = Describe("Pipelines", func() {
 				"0": {"1", "2"},
 				"1": {"4", "5"},
 			},
-			"series": [][]string{
+			"sequences": [][]string{
 				{"2", "3", "6"},
 				{"4"},
 				{"5", "6"},
+			},
+		}
+
+		actualOutput := getActualOutput(pipelinePayload)
+
+		// Compare the actual output with the expected output
+		Expect(actualOutput).To(BeEquivalentTo(expectedOutput))
+	})
+
+	It("should test a BST", func() {
+		/*
+			     0
+				/ \
+			   1   2
+			  / \  /\
+			 3  4  5 6
+		
+			In this example, 0, 1 and 2 should return as parallels
+			0: [1,2]
+			1: [3,4]
+			2: [5,6]
+
+			3, 4, 5, 6 should be a single node sequence
+		*/
+		pipelinePayload := model.PipelinePayload{
+			Nodes: []model.Node{
+				{ID: "0", Data: model.NodeData{Label: "API Server Source"}},
+				{ID: "1", Data: model.NodeData{Label: "FaaS 1"}},
+				{ID: "2", Data: model.NodeData{Label: "FaaS 2"}},
+				{ID: "3", Data: model.NodeData{Label: "FaaS 3"}},
+				{ID: "4", Data: model.NodeData{Label: "FaaS 4"}},
+				{ID: "5", Data: model.NodeData{Label: "FaaS 5"}},
+				{ID: "6", Data: model.NodeData{Label: "FaaS 6"}},
+			},
+			Edges: []model.Edge{
+				{ID: "0-1", Source: "0", Target: "1"},
+				{ID: "0-2", Source: "0", Target: "2"},
+				{ID: "1-3", Source: "1", Target: "3"},
+				{ID: "1-4", Source: "1", Target: "4"},
+				{ID: "2-5", Source: "2", Target: "5"},
+				{ID: "2-6", Source: "2", Target: "6"},
+			},
+		}
+
+		expectedOutput := map[string]interface{}{
+			"parallels": map[string][]string{
+				"0": {"1", "2"},
+				"1": {"3", "4"},
+				"2": {"5", "6"},
+			},
+			"sequences": [][]string{
+				{"3"},
+				{"4"},
+				{"5"},
+				{"6"},
 			},
 		}
 
