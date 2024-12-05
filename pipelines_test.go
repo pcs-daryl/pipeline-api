@@ -1,10 +1,6 @@
 package main_test
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -12,46 +8,150 @@ import (
 	"aaaas/pipeline-api/pkg/api/model"
 )
 
-var _ = Describe("Pipelines", func() {
-	// You can load test data from JSON files here
-	var inputJSON []byte
+func getActualOutput(pipelinePayload model.PipelinePayload ) (map[string]interface{}){
+	nodes := pipelinePayload.Nodes
+	edges := pipelinePayload.Edges
 
-	// This will be run before each test case
-	BeforeEach(func() {
-		// Load the input and expected output JSON from files (test cases)
-		var err error
-		inputJSON, err = os.ReadFile(filepath.Join("test", "testdata", "input.json"))
-		Expect(err).NotTo(HaveOccurred())
+	parallels, series := helpers.TraverseGraph(nodes, edges)
+
+	return map[string]interface{}{
+		"parallels": parallels,
+		"series": series,
+	}
+}
+var _ = Describe("Pipelines", func() {
+	It("should test our first example", func() {
+		/*
+			0 -> 1 -> 2 -> 3
+
+			simple example of a series
+		*/
+		pipelinePayload := model.PipelinePayload{
+			Nodes: []model.Node{
+				{ID: "0", Data: model.NodeData{Label: "API Server Source"}},
+				{ID: "1", Data: model.NodeData{Label: "FaaS1"}},
+				{ID: "2", Data: model.NodeData{Label: "FaaS2"}},
+				{ID: "3", Data: model.NodeData{Label: "FaaS3"}},
+			},
+			Edges: []model.Edge{
+				{ID: "0-1", Source: "0", Target: "1"},
+				{ID: "1-2", Source: "1", Target: "2"},
+				{ID: "2-3", Source: "2", Target: "3"},
+			},
+		}
+
+		expectedOutput := map[string]interface{}{
+			"parallels": map[string][]string{},
+			"series": [][]string{
+				{"0", "1", "2", "3"},
+			},
+		}
+
+		actualOutput := getActualOutput(pipelinePayload)
+
+		// Compare the actual output with the expected output
+		Expect(actualOutput).To(BeEquivalentTo(expectedOutput))
 	})
 
-	// The actual test for the function
-	It("should correctly identify nodes with multiple outgoing edges and single path chains", func() {
+	It("should test our second example", func() {
+		/*
+			0 
+
+			if we have just one node, it should return a series of just 0
+		*/
+		pipelinePayload := model.PipelinePayload{
+			Nodes: []model.Node{
+				{ID: "0", Data: model.NodeData{Label: "API Server Source"}},
+			},
+			Edges: []model.Edge{},
+		}
+
 		expectedOutput := map[string]interface{}{
-			"multipleOutgoingEdgesNodes": map[string][]string{
-				"1": {"2", "3"},
-				"2": {"5", "6"},
-			},
-			"singlePathNodes": [][]string{
-				{"3", "4", "7"},
-				{"5"},
-				{"6", "7"},
+			"parallels": map[string][]string{},
+			"series": [][]string{
+				{"0"},
 			},
 		}
-		// Unmarshal input JSON into the corresponding Go structs
-		var pipelinePayload model.PipelinePayload
-		err := json.Unmarshal(inputJSON, &pipelinePayload)
-		Expect(err).NotTo(HaveOccurred())
 
-		// Call the function to test
-		multipleOutgoingEdgesNodes, singlePathNodes := helpers.FindNodesWithMultipleOutgoingEdgesAndNeighborsAndSinglePathNodes(pipelinePayload.Nodes, pipelinePayload.Edges)
+		actualOutput := getActualOutput(pipelinePayload)
 
-		// Marshal the actual output back into JSON for comparison
-		actualOutput := map[string]interface{}{
-			"multipleOutgoingEdgesNodes": multipleOutgoingEdgesNodes,
-			"singlePathNodes":            singlePathNodes,
+		// Compare the actual output with the expected output
+		Expect(actualOutput).To(BeEquivalentTo(expectedOutput))
+	})
+
+	It("should test our third example", func() {
+		/*
+			nothing
+			if we pass in nothing, it should return nothing
+		*/
+		pipelinePayload := model.PipelinePayload{
+			Nodes: []model.Node{},
+			Edges: []model.Edge{},
 		}
 
-		Expect(err).NotTo(HaveOccurred())
+		expectedOutput := map[string]interface{}{
+			"parallels": map[string][]string{},
+			"series": [][]string{},
+		}
+
+		actualOutput := getActualOutput(pipelinePayload)
+
+		// Compare the actual output with the expected output
+		Expect(actualOutput).To(BeEquivalentTo(expectedOutput))
+	})
+
+	It("should test our fourth example", func() {
+		/*
+				 4
+				 ^
+				 |
+			0 -> 1 -> 5
+			|         |
+			V         V
+			2 -> 3 -> 6
+			The function should capture 0 and 1 as parallels because they have 2 child nodes.
+			0 has childs [1,2]
+			1 has childs [4,5]
+
+			the sequences should be 
+			4
+			5 -> 6
+			2 -> 3 -> 6
+		*/
+		pipelinePayload := model.PipelinePayload{
+			Nodes: []model.Node{
+				{ID: "0", Data: model.NodeData{Label: "API Server Source"}},
+				{ID: "1", Data: model.NodeData{Label: "FaaS 1"}},
+				{ID: "2", Data: model.NodeData{Label: "FaaS 2"}},
+				{ID: "3", Data: model.NodeData{Label: "FaaS 3"}},
+				{ID: "4", Data: model.NodeData{Label: "FaaS 4"}},
+				{ID: "5", Data: model.NodeData{Label: "FaaS 5"}},
+				{ID: "6", Data: model.NodeData{Label: "FaaS 6"}},
+			},
+			Edges: []model.Edge{
+				{ID: "0-1", Source: "0", Target: "1"},
+				{ID: "0-2", Source: "0", Target: "2"},
+				{ID: "2-3", Source: "2", Target: "3"},
+				{ID: "1-4", Source: "1", Target: "4"},
+				{ID: "1-5", Source: "1", Target: "5"},
+				{ID: "3-6", Source: "3", Target: "6"},
+				{ID: "5-6", Source: "5", Target: "6"},
+			},
+		}
+
+		expectedOutput := map[string]interface{}{
+			"parallels": map[string][]string{
+				"0": {"1", "2"},
+				"1": {"4", "5"},
+			},
+			"series": [][]string{
+				{"2", "3", "6"},
+				{"4"},
+				{"5", "6"},
+			},
+		}
+
+		actualOutput := getActualOutput(pipelinePayload)
 
 		// Compare the actual output with the expected output
 		Expect(actualOutput).To(BeEquivalentTo(expectedOutput))

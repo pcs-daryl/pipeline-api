@@ -1,10 +1,12 @@
 package helpers
 
-import "aaaas/pipeline-api/pkg/api/model"
+import (
+	"aaaas/pipeline-api/pkg/api/model"
+)
 
 // FindNodesWithMultipleOutgoingEdgesAndNeighbors identifies nodes with multiple outgoing edges and their neighbors,
 // and identifies single path nodes (nodes part of chains), excluding already visited nodes.
-func FindNodesWithMultipleOutgoingEdgesAndNeighborsAndSinglePathNodes(
+func TraverseGraph(
 	nodes []model.Node, edges []model.Edge) (map[string][]string, [][]string) {
 
 	// Map to store outgoing neighbors for each node
@@ -12,9 +14,9 @@ func FindNodesWithMultipleOutgoingEdgesAndNeighborsAndSinglePathNodes(
 	// Map to store incoming neighbors for each node
 	incomingNeighbors := make(map[string][]string)
 	// Map to track nodes with multiple outgoing edges
-	multipleOutgoingEdgesNodes := make(map[string][]string)
+	parallels := make(map[string][]string)
 	// Slice to store single path chains
-	var singlePathChains [][]string
+	series := [][]string{}
 
 	// Populate the outgoingNeighbors and incomingNeighbors maps
 	for _, edge := range edges {
@@ -26,7 +28,7 @@ func FindNodesWithMultipleOutgoingEdgesAndNeighborsAndSinglePathNodes(
 	for _, node := range nodes {
 		neighbors := outgoingNeighbors[node.ID]
 		if len(neighbors) > 1 {
-			multipleOutgoingEdgesNodes[node.ID] = neighbors
+			parallels[node.ID] = neighbors
 		}
 	}
 
@@ -74,9 +76,8 @@ func FindNodesWithMultipleOutgoingEdgesAndNeighborsAndSinglePathNodes(
 			}
 
 			// Add the chain to the result
-			singlePathChains = append(singlePathChains, chain)
+			series = append(series, chain)
 		}
 	}
-
-	return multipleOutgoingEdgesNodes, singlePathChains
+	return parallels, series
 }

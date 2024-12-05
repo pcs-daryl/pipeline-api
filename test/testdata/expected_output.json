@@ -1,7 +1,0 @@
-{
-  "multipleOutgoingEdgesNodes": {
-    "1": ["2", "3"],
-    "2": ["5", "6"]
-  },
-  "singlePathNodes": [["3", "4", "7"], ["5"], ["6", "7"]]
-}

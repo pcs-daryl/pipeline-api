@@ -24,7 +24,7 @@ func main() {
 		}
 
 		// Identify nodes with multiple outgoing edges and their neighbors, and single path nodes
-		multipleOutgoingEdgesNodes, singlePathNodes := helpers.FindNodesWithMultipleOutgoingEdgesAndNeighborsAndSinglePathNodes(
+		multipleOutgoingEdgesNodes, singlePathNodes := helpers.TraverseGraph(
 			payload.Nodes, payload.Edges)
 
 		// Respond with the results
