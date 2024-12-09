@@ -15,5 +15,5 @@ func main() {
 	middlewareConf := commonCfg.NewMiddlewareConfig(commonCfg.DisableKubeconfigMiddleware())
 	routes := []server.APIHandlerGroup{handlers.HandlerGroup{}}
 	// server.Run(configPath, configSections, routes, serverCfgImpl, "")
-	server.RunWithMiddlewareConfigs(configPath, configSections, routes, serverCfgImpl, "", middlewareConf)
+	server.RunWithMiddlewareConfigs(configPath, configSections, routes, serverCfgImpl, "conf/supervisorconf", middlewareConf)
 }
