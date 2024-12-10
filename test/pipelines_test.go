@@ -1,25 +1,38 @@
 package main_test
 
 import (
+	"context"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"aaaas/pipeline-api/pkg/api/helpers"
 	"aaaas/pipeline-api/pkg/api/model"
+
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	knative "knative.dev/serving/pkg/apis/serving/v1"
 )
 
-func getActualOutput(pipelinePayload model.PipelinePayload ) (map[string]interface{}){
-	nodes := pipelinePayload.Nodes
-	edges := pipelinePayload.Edges
-
-	parallels, sequences := helpers.TraverseGraph(nodes, edges)
-
-	return map[string]interface{}{
-		"parallels": parallels,
-		"sequences": sequences,
-	}
-}
 var _ = Describe("Pipelines", func() {
+	ctx := context.Background()
+
+	// typeNamespacedName := types.NamespacedName{
+	// 	Name:      "knative",
+	// 	Namespace: namespace,
+	// }
+
+	BeforeEach(func() {
+		By("Creating some test ksvc")
+		Expect(createKsvc(ctx, "func-1")).To(Succeed())
+	})
+
+	AfterEach(func() {
+		By("Deleting the test ksvc")
+		Expect(deleteKsvc(ctx, "func-1")).To(Succeed())
+	})
+
 	It("should test our simple sequence", func() {
 		/*
 			0 -> 1 -> 2 -> 3
@@ -55,7 +68,7 @@ var _ = Describe("Pipelines", func() {
 
 	It("should test a single node", func() {
 		/*
-			0 
+			0
 
 			if we have just one node, it should return a sequence of just 0
 		*/
@@ -113,7 +126,7 @@ var _ = Describe("Pipelines", func() {
 			0 has childs [1,2]
 			1 has childs [4,5]
 
-			the sequences should be 
+			the sequences should be
 			4
 			5 -> 6
 			2 -> 3 -> 6
@@ -164,7 +177,7 @@ var _ = Describe("Pipelines", func() {
 			   1   2
 			  / \  /\
 			 3  4  5 6
-		
+
 			In this example, 0, 1 and 2 should return as parallels
 			0: [1,2]
 			1: [3,4]
@@ -212,3 +225,59 @@ var _ = Describe("Pipelines", func() {
 		Expect(actualOutput).To(BeEquivalentTo(expectedOutput))
 	})
 })
+
+func createKsvc(ctx context.Context, funcName string) error {
+	ksvc := &knative.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      funcName,
+			Namespace: namespace,
+		},
+		Spec: knative.ServiceSpec{
+			ConfigurationSpec: knative.ConfigurationSpec{
+				Template: knative.RevisionTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{},
+					Spec: knative.RevisionSpec{
+						PodSpec: v1.PodSpec{
+							Containers: []v1.Container{},
+						},
+					},
+				},
+			},
+		},
+	}
+	return k8sClient.Create(ctx, ksvc)
+}
+
+func deleteKsvc(ctx context.Context, funcName string) error {
+	ksvc := &knative.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      funcName,
+			Namespace: namespace,
+		},
+		Spec: knative.ServiceSpec{
+			ConfigurationSpec: knative.ConfigurationSpec{
+				Template: knative.RevisionTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{},
+					Spec: knative.RevisionSpec{
+						PodSpec: v1.PodSpec{
+							Containers: []v1.Container{},
+						},
+					},
+				},
+			},
+		},
+	}
+	return k8sClient.Delete(ctx, ksvc)
+}
+
+func getActualOutput(pipelinePayload model.PipelinePayload) map[string]interface{} {
+	nodes := pipelinePayload.Nodes
+	edges := pipelinePayload.Edges
+
+	parallels, sequences := helpers.TraverseGraph(nodes, edges)
+
+	return map[string]interface{}{
+		"parallels": parallels,
+		"sequences": sequences,
+	}
+}

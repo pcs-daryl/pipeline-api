@@ -22,6 +22,7 @@ import (
 var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
+var namespace = "knative"
 
 func TestPipelineApi(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -60,7 +61,7 @@ var _ = BeforeSuite(func() {
 
 	By("creating the namespace")
 	ctx := context.Background()
-	err = createNamespace(ctx, "knative")
+	err = createNamespace(ctx, namespace)
 	Expect(err).NotTo(HaveOccurred())
 })
 
