@@ -64,7 +64,7 @@ func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code 
 
 			if err != nil {
 				sequenceIsValid = false
-				fmt.Println("Ksvc not found: ", nodeId)
+				fmt.Println("Ksvc not found: ", err)
 				break
 			}
 		}
