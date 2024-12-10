@@ -14,7 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	knative "knative.dev/serving/pkg/apis/serving/v1"
+	serving "knative.dev/serving/pkg/apis/serving/v1"
 )
 
 var _ = Describe("Pipelines", func() {
@@ -267,16 +267,16 @@ var _ = Describe("Pipelines", func() {
 })
 
 func createKsvc(ctx context.Context, funcName string) error {
-	ksvc := &knative.Service{
+	ksvc := &serving.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      funcName,
 			Namespace: namespace,
 		},
-		Spec: knative.ServiceSpec{
-			ConfigurationSpec: knative.ConfigurationSpec{
-				Template: knative.RevisionTemplateSpec{
+		Spec: serving.ServiceSpec{
+			ConfigurationSpec: serving.ConfigurationSpec{
+				Template: serving.RevisionTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{},
-					Spec: knative.RevisionSpec{
+					Spec: serving.RevisionSpec{
 						PodSpec: v1.PodSpec{
 							Containers: []v1.Container{},
 						},
@@ -289,16 +289,16 @@ func createKsvc(ctx context.Context, funcName string) error {
 }
 
 func deleteKsvc(ctx context.Context, funcName string) error {
-	ksvc := &knative.Service{
+	ksvc := &serving.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      funcName,
 			Namespace: namespace,
 		},
-		Spec: knative.ServiceSpec{
-			ConfigurationSpec: knative.ConfigurationSpec{
-				Template: knative.RevisionTemplateSpec{
+		Spec: serving.ServiceSpec{
+			ConfigurationSpec: serving.ConfigurationSpec{
+				Template: serving.RevisionTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{},
-					Spec: knative.RevisionSpec{
+					Spec: serving.RevisionSpec{
 						PodSpec: v1.PodSpec{
 							Containers: []v1.Container{},
 						},
@@ -310,8 +310,8 @@ func deleteKsvc(ctx context.Context, funcName string) error {
 	return k8sClient.Delete(ctx, ksvc)
 }
 
-func getKsvc(ctx context.Context, funcName string) (*knative.Service, error) {
-	ksvc := &knative.Service{}
+func getKsvc(ctx context.Context, funcName string) (*serving.Service, error) {
+	ksvc := &serving.Service{}
 	typeNamespacedName := types.NamespacedName{
 		Name:      funcName,
 		Namespace: namespace,
