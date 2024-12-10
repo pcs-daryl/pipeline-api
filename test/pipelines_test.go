@@ -14,6 +14,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	flows "knative.dev/eventing/pkg/apis/flows/v1"
+	messaging "knative.dev/eventing/pkg/apis/messaging/v1"
+	duck "knative.dev/pkg/apis/duck/v1"
 	serving "knative.dev/serving/pkg/apis/serving/v1"
 )
 
@@ -253,15 +256,65 @@ var _ = Describe("Pipelines", func() {
 
 		It("should check that initial ksvc is created successfully (custom function)", func() {
 			node := model.Node{ID: "0", Data: model.NodeData{Label: "func-1", FaasID: "func-1"}}
-			ksvc, err := handlers.GetKsvcFromNode(k8sClient, ctx, "knative", &node)
+			ksvc, err := handlers.GetKsvcFromNode(k8sClient, ctx, namespace, &node)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(ksvc.ObjectMeta.Name).To(BeEquivalentTo("func-1"))
 		})
 
 		It("should correctly return errors for functions that do not exist", func() {
 			node := model.Node{ID: "0", Data: model.NodeData{Label: "abcdef", FaasID: "abcdef"}}
-			_, err := handlers.GetKsvcFromNode(k8sClient, ctx, "knative", &node)
+			_, err := handlers.GetKsvcFromNode(k8sClient, ctx, namespace, &node)
 			Expect(err).To(HaveOccurred())
+		})
+
+		It("should correctly build the knative sequence given a list of valid nodes", func() {
+			validFaasIds := []string{"abc", "def", "ghi"}
+			sequence := handlers.TranslateSequence(validFaasIds, namespace)
+
+			expectedSteps := []flows.SequenceStep{}
+
+			for _, faasId := range validFaasIds {
+				expectedSteps = append(expectedSteps,
+					flows.SequenceStep{
+						Destination: duck.Destination{
+							Ref: &duck.KReference{
+								APIVersion: "serving.knative.dev/v1",
+								Kind:       "Service",
+								Name:       faasId,
+							},
+						},
+					})
+			}
+
+			expectedSequence := flows.Sequence{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "randomly-generate-here",
+					Namespace: namespace,
+				},
+				Spec: flows.SequenceSpec{
+					ChannelTemplate: &messaging.ChannelTemplateSpec{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: "messaging.knative.dev/v1",
+							Kind:       "InMemoryChannel",
+						},
+					},
+					Steps: expectedSteps,
+				},
+			}
+			Expect(sequence).To(BeEquivalentTo(expectedSequence))
+		})
+
+		It("should create the sequence in the cluster", func() {
+			validFaasIds := []string{"abc", "def", "ghi"}
+			sequence := handlers.TranslateSequence(validFaasIds, namespace)
+
+			err := handlers.ApplySequence(ctx, k8sClient, sequence)
+			Expect(err).NotTo(HaveOccurred())
+
+			createdSequence, err := getSequence(ctx, "randomly-generate-here")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(len(createdSequence.Spec.Steps)).To(BeEquivalentTo(3))
 		})
 	})
 })
@@ -318,6 +371,16 @@ func getKsvc(ctx context.Context, funcName string) (*serving.Service, error) {
 	}
 	err := k8sClient.Get(ctx, typeNamespacedName, ksvc)
 	return ksvc, err
+}
+
+func getSequence(ctx context.Context, sequenceName string) (*flows.Sequence, error) {
+	ksequence := &flows.Sequence{}
+	typeNamespacedName := types.NamespacedName{
+		Name:      sequenceName,
+		Namespace: namespace,
+	}
+	err := k8sClient.Get(ctx, typeNamespacedName, ksequence)
+	return ksequence, err
 }
 
 func getActualOutput(pipelinePayload model.PipelinePayload) map[string]interface{} {

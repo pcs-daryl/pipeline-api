@@ -16,7 +16,10 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	knative "knative.dev/serving/pkg/apis/serving/v1"
+	flows "knative.dev/eventing/pkg/apis/flows/v1"
+	messaging "knative.dev/eventing/pkg/apis/messaging/v1"
+	duck "knative.dev/pkg/apis/duck/v1"
+	serving "knative.dev/serving/pkg/apis/serving/v1"
 )
 
 var (
@@ -52,7 +55,16 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	err = knative.AddToScheme(scheme.Scheme)
+	err = serving.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = flows.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = messaging.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = duck.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme

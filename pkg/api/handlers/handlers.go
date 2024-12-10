@@ -40,6 +40,9 @@ func (h HandlerGroup) HandlerManifests() []server.APIHandlerManifest {
 func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code int, obj interface{}) {
 	var payload model.PipelinePayload
 
+	//TODO don't hardcode this
+	k8sClient := getK8sClient()
+
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		return http.StatusBadRequest, err
 	}
@@ -66,7 +69,7 @@ func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code 
 			}
 
 			// ensure it is a valid svc in the cluster
-			_, err = validateKsvc(c, "default", node)
+			_, err = validateKsvc(c, k8sClient, "default", node)
 
 			if err != nil {
 				sequenceIsValid = false
@@ -79,8 +82,8 @@ func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code 
 		}
 
 		// with the valid nodes, construct our sequence
-		sequence := GetSequence(validNodes, "knative")
-		err := ApplySequence(c, sequence)
+		sequence := TranslateSequence(validNodes, "knative")
+		err := ApplySequence(c, k8sClient, sequence)
 
 		if err != nil {
 			fmt.Println("Sequence error: ", err)
@@ -108,9 +111,9 @@ func GetNodeByID(payload model.PipelinePayload, id string) (*model.Node, error) 
 	return nil, fmt.Errorf("Invalid nodes found: node id -> " + id)
 }
 
-func validateKsvc(c *server.APICtx, namespace string, node *model.Node) (*serving.Service, error) {
+func validateKsvc(c *server.APICtx, k8sClient client.Client, namespace string, node *model.Node) (*serving.Service, error) {
 	//TODO handle k8s client
-	return GetKsvcFromNode(getK8sClient(), c.Context, namespace, node)
+	return GetKsvcFromNode(k8sClient, c.Context, namespace, node)
 }
 
 func GetKsvcFromNode(client client.Client, ctx context.Context, namespace string, node *model.Node) (*serving.Service, error) {
@@ -146,12 +149,11 @@ func getK8sClient() client.Client {
 	return k8sClient
 }
 
-func ApplySequence(ctx context.Context, sequence flows.Sequence) error {
-	k8sClient := getK8sClient()
+func ApplySequence(ctx context.Context, k8sClient client.Client, sequence flows.Sequence) error {
 	return k8sClient.Create(ctx, &sequence)
 }
 
-func GetSequence(faasIdList []string, namespace string) flows.Sequence {
+func TranslateSequence(faasIdList []string, namespace string) flows.Sequence {
 	steps := []flows.SequenceStep{}
 
 	for _, faasId := range faasIdList {
@@ -169,7 +171,7 @@ func GetSequence(faasIdList []string, namespace string) flows.Sequence {
 
 	return flows.Sequence{
 		ObjectMeta: v1.ObjectMeta{
-			Name:      "randomly generate here",
+			Name:      "randomly-generate-here",
 			Namespace: namespace,
 		},
 		Spec: flows.SequenceSpec{
