@@ -6,7 +6,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
+	"strconv"
 
 	"github.com/pcs-aa-aas/commons/pkg/api/server"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -69,6 +71,7 @@ func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code 
 			}
 
 			// ensure it is a valid svc in the cluster
+			//TODO remove this hardcoded namespace
 			_, err = validateKsvc(c, k8sClient, "default", node)
 
 			if err != nil {
@@ -82,7 +85,8 @@ func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code 
 		}
 
 		// with the valid nodes, construct our sequence
-		sequence := TranslateSequence(validNodes, "knative")
+		sequenceName := "mocha-sequence-" + generateRandomString()
+		sequence := TranslateSequence(validNodes, "default", sequenceName)
 		err := ApplySequence(c, k8sClient, sequence)
 
 		if err != nil {
@@ -140,6 +144,9 @@ func getK8sClient() client.Client {
 	}
 
 	err = serving.AddToScheme(scheme.Scheme)
+	err = flows.AddToScheme(scheme.Scheme)
+	err = messaging.AddToScheme(scheme.Scheme)
+	err = duck.AddToScheme(scheme.Scheme)
 
 	// Create the controller-runtime client
 	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
@@ -153,7 +160,7 @@ func ApplySequence(ctx context.Context, k8sClient client.Client, sequence flows.
 	return k8sClient.Create(ctx, &sequence)
 }
 
-func TranslateSequence(faasIdList []string, namespace string) flows.Sequence {
+func TranslateSequence(faasIdList []string, namespace string, sequenceName string) flows.Sequence {
 	steps := []flows.SequenceStep{}
 
 	for _, faasId := range faasIdList {
@@ -171,7 +178,7 @@ func TranslateSequence(faasIdList []string, namespace string) flows.Sequence {
 
 	return flows.Sequence{
 		ObjectMeta: v1.ObjectMeta{
-			Name:      "randomly-generate-here",
+			Name:      sequenceName,
 			Namespace: namespace,
 		},
 		Spec: flows.SequenceSpec{
@@ -184,4 +191,10 @@ func TranslateSequence(faasIdList []string, namespace string) flows.Sequence {
 			Steps: steps,
 		},
 	}
+}
+
+func generateRandomString() string {
+	randomNumber := rand.Intn(999999) + 1
+	// Convert the number to a string
+	return strconv.Itoa(randomNumber)
 }

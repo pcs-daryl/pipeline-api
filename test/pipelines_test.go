@@ -269,7 +269,8 @@ var _ = Describe("Pipelines", func() {
 
 		It("should correctly build the knative sequence given a list of valid nodes", func() {
 			validFaasIds := []string{"abc", "def", "ghi"}
-			sequence := handlers.TranslateSequence(validFaasIds, namespace)
+			sequenceName := "test-sequence"
+			sequence := handlers.TranslateSequence(validFaasIds, namespace, sequenceName)
 
 			expectedSteps := []flows.SequenceStep{}
 
@@ -288,7 +289,7 @@ var _ = Describe("Pipelines", func() {
 
 			expectedSequence := flows.Sequence{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "randomly-generate-here",
+					Name:      sequenceName,
 					Namespace: namespace,
 				},
 				Spec: flows.SequenceSpec{
@@ -306,12 +307,13 @@ var _ = Describe("Pipelines", func() {
 
 		It("should create the sequence in the cluster", func() {
 			validFaasIds := []string{"abc", "def", "ghi"}
-			sequence := handlers.TranslateSequence(validFaasIds, namespace)
+			sequenceName := "test-sequence"
+			sequence := handlers.TranslateSequence(validFaasIds, namespace, sequenceName)
 
 			err := handlers.ApplySequence(ctx, k8sClient, sequence)
 			Expect(err).NotTo(HaveOccurred())
 
-			createdSequence, err := getSequence(ctx, "randomly-generate-here")
+			createdSequence, err := getSequence(ctx, sequenceName)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(len(createdSequence.Spec.Steps)).To(BeEquivalentTo(3))
