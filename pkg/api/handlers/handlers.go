@@ -49,19 +49,23 @@ func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code 
 	sequenceIsValid := true
 	for i, sequence := range sequences {
 		fmt.Println("Checking sequence ", i)
-
 		for _, nodeId := range sequence {
 
-			//TODO get the ksvc and do something with it
-			_, err := getMochaKsvc(c, "default", payload, nodeId)
+			node, err := GetNodeByID(payload, nodeId)
+			if err != nil {
+				sequenceIsValid = false
+				fmt.Println("Node error: ", err)
+				break
+			}
+
+			_, err = validateKsvc(c, "default", node)
 
 			//TODO handle the invalid node data error?
 
 			if err != nil {
 				sequenceIsValid = false
 				fmt.Println("Ksvc not found: ", nodeId)
-			} else {
-				fmt.Println("Found ksvc in default namespace ", nodeId)
+				break
 			}
 		}
 	}
@@ -77,16 +81,16 @@ func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code 
 	}
 }
 
-func getNodeByID(payload model.PipelinePayload, id string) *model.Node {
+func GetNodeByID(payload model.PipelinePayload, id string) (*model.Node, error) {
 	for _, node := range payload.Nodes {
 		if node.ID == id {
-			return &node // Return a pointer to the node
+			return &node, nil // Return a pointer to the node
 		}
 	}
-	return nil // Return nil if no node with the given ID is found
+	return nil, fmt.Errorf("Invalid nodes found: node id -> " + id)
 }
 
-func getMochaKsvc(c *server.APICtx, namespace string, payload model.PipelinePayload, nodeId string) (*knative.Service, error) {
+func validateKsvc(c *server.APICtx, namespace string, node *model.Node) (*knative.Service, error) {
 	//TODO handle this kubeconfig part
 	kubeconfigPath := "/home/administrator/Documents/pipeline-api/conf/supervisorconf"
 	cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
@@ -101,16 +105,10 @@ func getMochaKsvc(c *server.APICtx, namespace string, payload model.PipelinePayl
 	if err != nil {
 		log.Fatalf("Error creating Kubernetes client: %v", err)
 	}
-
-	return getKsvc(k8sClient, c.Context, namespace, payload, nodeId)
+	return GetKsvcFromNode(k8sClient, c.Context, namespace, node)
 }
 
-func getKsvc(client client.Client, ctx context.Context, namespace string, payload model.PipelinePayload, nodeId string) (*knative.Service, error) {
-	node := getNodeByID(payload, nodeId)
-	if node == nil {
-		return &knative.Service{}, fmt.Errorf("Invalid node data")
-	}
-
+func GetKsvcFromNode(client client.Client, ctx context.Context, namespace string, node *model.Node) (*knative.Service, error) {
 	ksvc := &knative.Service{}
 
 	typeNamespacedName := types.NamespacedName{
