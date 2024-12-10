@@ -19,10 +19,12 @@ import (
 	knative "knative.dev/serving/pkg/apis/serving/v1"
 )
 
-var cfg *rest.Config
-var k8sClient client.Client
-var testEnv *envtest.Environment
-var namespace = "knative"
+var (
+	cfg       *rest.Config
+	k8sClient client.Client
+	testEnv   *envtest.Environment
+	namespace = "knative"
+)
 
 func TestPipelineApi(t *testing.T) {
 	RegisterFailHandler(Fail)
