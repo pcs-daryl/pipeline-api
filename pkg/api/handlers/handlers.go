@@ -91,10 +91,10 @@ func GetNodeByID(payload model.PipelinePayload, id string) (*model.Node, error) 
 	return nil, fmt.Errorf("Invalid nodes found: node id -> " + id)
 }
 
-func validateKsvc(c context.Context, k8sClient client.Client, namespace string, node *model.Node) (*serving.Service, error) {
-	//TODO handle k8s client
-	return GetKsvcFromNode(k8sClient, c, namespace, node)
-}
+// func validateKsvc(c context.Context, k8sClient client.Client, namespace string, node *model.Node) (*serving.Service, error) {
+// 	//TODO handle k8s client
+// 	return GetKsvcFromNode(k8sClient, c, namespace, node)
+// }
 
 func GetKsvcFromNode(client client.Client, ctx context.Context, namespace string, node *model.Node) (*serving.Service, error) {
 	ksvc := &serving.Service{}
@@ -143,7 +143,7 @@ func GetValidNodes(c context.Context, k8sClient client.Client, namespace string,
 		}
 
 		// ensure it is a valid svc in the cluster
-		_, err = validateKsvc(c, k8sClient, namespace, node)
+		_, err = GetKsvcFromNode(k8sClient, c, namespace, node)
 		if err != nil {
 			fmt.Println("Ksvc not found: ", err)
 			return []string{}, fmt.Errorf("Node can not be mapped to a Ksvc: " + nodeId)

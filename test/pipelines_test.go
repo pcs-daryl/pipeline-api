@@ -2,9 +2,12 @@ package main_test
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"aaaas/pipeline-api/pkg/api/handlers"
 	"aaaas/pipeline-api/pkg/api/helpers"
@@ -20,7 +23,7 @@ import (
 	serving "knative.dev/serving/pkg/apis/serving/v1"
 )
 
-var testFaasList = []string{"func-1", "func-2", "func-3"}
+var testFaasList = []string{"func-0", "func-1", "func-2", "func-3", "func-4", "func-5", "func-6", "func-7"}
 
 var _ = Describe("Pipelines", func() {
 	ctx := context.Background()
@@ -37,6 +40,7 @@ var _ = Describe("Pipelines", func() {
 		for _, faasId := range testFaasList {
 			Expect(deleteKsvc(ctx, faasId)).To(Succeed())
 		}
+		Expect(deleteAllSequences(ctx)).To(Succeed())
 	})
 
 	Context("When handling nodes and edges", func() {
@@ -282,7 +286,7 @@ var _ = Describe("Pipelines", func() {
 				Nodes: []model.Node{
 					{ID: "0", Data: model.NodeData{Label: "FaaS 0", FaasID: "func-1"}},
 					{ID: "1", Data: model.NodeData{Label: "FaaS 1", FaasID: "func-2"}},
-					{ID: "2", Data: model.NodeData{Label: "FaaS 2", FaasID: "func-4"}}, //invalid node
+					{ID: "2", Data: model.NodeData{Label: "FaaS 2", FaasID: "func-999"}}, //invalid node
 				},
 				Edges: []model.Edge{
 					{ID: "0-1", Source: "0", Target: "1"},
@@ -373,6 +377,157 @@ var _ = Describe("Pipelines", func() {
 			Expect(len(createdSequence.Spec.Steps)).To(BeEquivalentTo(3))
 		})
 	})
+
+	Context("When testing the full flow", func() {
+		//TODO test parallels when ready
+		It("should handle simple sequences 1", func() {
+			/*
+				0 -> 1 -> 2 -> 3
+
+				simple example of a sequence
+			*/
+			pipelinePayload := model.PipelinePayload{
+				Nodes: []model.Node{
+					{ID: "0", Data: model.NodeData{Label: "func-1", FaasID: "func-1"}},
+					{ID: "1", Data: model.NodeData{Label: "func-2", FaasID: "func-2"}},
+					{ID: "2", Data: model.NodeData{Label: "func-3", FaasID: "func-3"}},
+					{ID: "3", Data: model.NodeData{Label: "func-4", FaasID: "func-4"}},
+				},
+				Edges: []model.Edge{
+					{ID: "0-1", Source: "0", Target: "1"},
+					{ID: "1-2", Source: "1", Target: "2"},
+					{ID: "2-3", Source: "2", Target: "3"},
+				},
+			}
+
+			applyManifests(ctx, pipelinePayload)
+
+			//expect one sequence to be deployed
+			createdSequence, err := getSequence(ctx, "mocha-sequence-0")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(createdSequence.Spec.Steps)).To(BeEquivalentTo(4))
+		})
+
+		It("should handle simple sequences 2", func() {
+			/*
+				0 -> 1 -> 2 -> 3
+
+				simple example of a sequence
+			*/
+			pipelinePayload := model.PipelinePayload{
+				Nodes: []model.Node{
+					{ID: "0", Data: model.NodeData{Label: "func-1", FaasID: "func-1"}},
+					{ID: "1", Data: model.NodeData{Label: "func-4", FaasID: "func-4"}},
+					{ID: "2", Data: model.NodeData{Label: "func-4", FaasID: "func-4"}},
+					{ID: "3", Data: model.NodeData{Label: "func-4", FaasID: "func-4"}},
+				},
+				Edges: []model.Edge{
+					{ID: "0-1", Source: "0", Target: "1"},
+					{ID: "1-2", Source: "1", Target: "2"},
+					{ID: "2-3", Source: "2", Target: "3"},
+				},
+			}
+
+			applyManifests(ctx, pipelinePayload)
+
+			//expect one sequence to be deployed
+			createdSequence, err := getSequence(ctx, "mocha-sequence-0")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(createdSequence.Spec.Steps)).To(BeEquivalentTo(4))
+		})
+
+		It("should test a more complicated tree", func() {
+			/*
+					 4
+					 ^
+					 |
+				0 -> 1 -> 5
+				|         |
+				V         V
+				2 -> 3 -> 6
+				The function should capture 0 and 1 as parallels because they have 2 child nodes.
+				0 has childs [1,2]
+				1 has childs [4,5]
+
+				the sequences should be
+				4
+				5 -> 6
+				2 -> 3 -> 6
+			*/
+			pipelinePayload := model.PipelinePayload{
+				Nodes: []model.Node{
+					{ID: "0", Data: model.NodeData{Label: "func-0", FaasID: "func-0"}},
+					{ID: "1", Data: model.NodeData{Label: "func-1", FaasID: "func-1"}},
+					{ID: "2", Data: model.NodeData{Label: "func-2", FaasID: "func-2"}},
+					{ID: "3", Data: model.NodeData{Label: "func-3", FaasID: "func-3"}},
+					{ID: "4", Data: model.NodeData{Label: "func-4", FaasID: "func-4"}},
+					{ID: "5", Data: model.NodeData{Label: "func-5", FaasID: "func-5"}},
+					{ID: "6", Data: model.NodeData{Label: "func-6", FaasID: "func-6"}},
+				},
+				Edges: []model.Edge{
+					{ID: "0-1", Source: "0", Target: "1"},
+					{ID: "0-2", Source: "0", Target: "2"},
+					{ID: "2-3", Source: "2", Target: "3"},
+					{ID: "1-4", Source: "1", Target: "4"},
+					{ID: "1-5", Source: "1", Target: "5"},
+					{ID: "3-6", Source: "3", Target: "6"},
+					{ID: "5-6", Source: "5", Target: "6"},
+				},
+			}
+			applyManifests(ctx, pipelinePayload)
+
+			//expect 3 sequence to be deployed
+			sequenceList, err := getSequenceList(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(sequenceList.Items)).To(BeEquivalentTo(3))
+		})
+
+		It("should test a BST", func() {
+			/*
+				     0
+					/ \
+				   1   2
+				  / \  /\
+				 3  4  5 6
+
+				In this example, 0, 1 and 2 should return as parallels
+				0: [1,2]
+				1: [3,4]
+				2: [5,6]
+
+				3, 4, 5, 6 should be a single node sequence
+			*/
+			pipelinePayload := model.PipelinePayload{
+				Nodes: []model.Node{
+					{ID: "0", Data: model.NodeData{Label: "func-0", FaasID: "func-0"}},
+					{ID: "1", Data: model.NodeData{Label: "func-1", FaasID: "func-1"}},
+					{ID: "2", Data: model.NodeData{Label: "func-2", FaasID: "func-2"}},
+					{ID: "3", Data: model.NodeData{Label: "func-3", FaasID: "func-3"}},
+					{ID: "4", Data: model.NodeData{Label: "func-4", FaasID: "func-4"}},
+					{ID: "5", Data: model.NodeData{Label: "func-5", FaasID: "func-5"}},
+					{ID: "6", Data: model.NodeData{Label: "func-6", FaasID: "func-6"}},
+				},
+				Edges: []model.Edge{
+					{ID: "0-1", Source: "0", Target: "1"},
+					{ID: "0-2", Source: "0", Target: "2"},
+					{ID: "1-3", Source: "1", Target: "3"},
+					{ID: "1-4", Source: "1", Target: "4"},
+					{ID: "2-5", Source: "2", Target: "5"},
+					{ID: "2-6", Source: "2", Target: "6"},
+				},
+			}
+
+			applyManifests(ctx, pipelinePayload)
+			//expect 1 sequence to be deployed
+			sequenceList, err := getSequenceList(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(sequenceList.Items)).To(BeEquivalentTo(4))
+			Expect(len(sequenceList.Items[0].Spec.Steps)).To(BeEquivalentTo(1))
+			Expect(len(sequenceList.Items[1].Spec.Steps)).To(BeEquivalentTo(1))
+			Expect(len(sequenceList.Items[2].Spec.Steps)).To(BeEquivalentTo(1))
+			Expect(len(sequenceList.Items[3].Spec.Steps)).To(BeEquivalentTo(1))
+		})
+	})
 })
 
 func createKsvc(ctx context.Context, funcName string) error {
@@ -439,6 +594,29 @@ func getSequence(ctx context.Context, sequenceName string) (*flows.Sequence, err
 	return ksequence, err
 }
 
+func getSequenceList(ctx context.Context) (*flows.SequenceList, error) {
+	ksequenceList := &flows.SequenceList{}
+	err := k8sClient.List(ctx, ksequenceList)
+	return ksequenceList, err
+}
+
+func deleteAllSequences(ctx context.Context) error {
+	// Define a list to hold all Knative Sequences
+	sequenceList := &flows.SequenceList{}
+	// List all sequences in the given namespace
+	if err := k8sClient.List(ctx, sequenceList, client.InNamespace(namespace)); err != nil {
+		return fmt.Errorf("failed to list sequences in namespace %s: %w", namespace, err)
+	}
+
+	// Iterate through each sequence and delete it
+	for _, sequence := range sequenceList.Items {
+		if err := k8sClient.Delete(ctx, &sequence); err != nil {
+			return fmt.Errorf("failed to delete sequence %s in namespace %s: %w", sequence.Name, namespace, err)
+		}
+	}
+	return nil
+}
+
 func getActualOutput(pipelinePayload model.PipelinePayload) map[string]interface{} {
 	nodes := pipelinePayload.Nodes
 	edges := pipelinePayload.Edges
@@ -448,5 +626,24 @@ func getActualOutput(pipelinePayload model.PipelinePayload) map[string]interface
 	return map[string]interface{}{
 		"parallels": parallels,
 		"sequences": sequences,
+	}
+}
+
+func applyManifests(ctx context.Context, pipelinePayload model.PipelinePayload) {
+	// assume happy path since all functions have been tested
+	_, sequences := helpers.TraverseGraph(
+		pipelinePayload.Nodes, pipelinePayload.Edges)
+
+	for i, sequence := range sequences {
+
+		// return a list of faas ids if the sequence is valid
+		validNodes, _ := handlers.GetValidNodes(ctx, k8sClient, namespace, sequence, pipelinePayload)
+
+		// with the valid nodes, construct our sequence
+		sequenceName := "mocha-sequence-" + strconv.Itoa(i)
+		sequence := handlers.TranslateSequence(validNodes, namespace, sequenceName)
+
+		//TODO still need to test parallel
+		handlers.ApplySequence(ctx, k8sClient, sequence)
 	}
 }
