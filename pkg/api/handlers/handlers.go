@@ -41,6 +41,7 @@ func (h HandlerGroup) HandlerManifests() []server.APIHandlerManifest {
 
 func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code int, obj interface{}) {
 	var payload model.PipelinePayload
+	namespace := "default"
 
 	//TODO don't hardcode this
 	k8sClient := getK8sClient()
@@ -54,49 +55,24 @@ func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code 
 		payload.Nodes, payload.Edges)
 
 	// handle sequences
-	// for each service in the sequence, check if it exists
-	sequenceIsValid := true
-	for i, sequence := range sequences {
-		fmt.Println("Checking sequence ", i)
+	// for each sequence in the sequences list, construct the knative sequence
+	for _, sequence := range sequences {
 
-		validNodes := []string{}
-		for _, nodeId := range sequence {
-
-			// fetch the node
-			node, err := GetNodeByID(payload, nodeId)
-			if err != nil {
-				sequenceIsValid = false
-				fmt.Println("Node error: ", err)
-				break
-			}
-
-			// ensure it is a valid svc in the cluster
-			//TODO remove this hardcoded namespace
-			_, err = validateKsvc(c, k8sClient, "default", node)
-
-			if err != nil {
-				sequenceIsValid = false
-				fmt.Println("Ksvc not found: ", err)
-				break
-			}
-
-			// add the nodes to validNodes
-			validNodes = append(validNodes, node.Data.FaasID)
+		// return a list of faas ids if the sequence is valid
+		validNodes, err := GetValidNodes(c, k8sClient, namespace, sequence, payload)
+		if err != nil {
+			fmt.Println("Unable to validate nodes: ", err)
 		}
 
 		// with the valid nodes, construct our sequence
 		sequenceName := "mocha-sequence-" + generateRandomString()
-		sequence := TranslateSequence(validNodes, "default", sequenceName)
-		err := ApplySequence(c, k8sClient, sequence)
+		sequence := TranslateSequence(validNodes, namespace, sequenceName)
 
+		err = ApplySequence(c, k8sClient, sequence)
 		if err != nil {
-			fmt.Println("Sequence error: ", err)
+			fmt.Println("Unable to apply sequence: ", err)
 			break
 		}
-	}
-
-	if !sequenceIsValid {
-		return http.StatusBadRequest, "Knative services are invalid"
 	}
 
 	return http.StatusOK, map[string]interface{}{
@@ -115,9 +91,9 @@ func GetNodeByID(payload model.PipelinePayload, id string) (*model.Node, error) 
 	return nil, fmt.Errorf("Invalid nodes found: node id -> " + id)
 }
 
-func validateKsvc(c *server.APICtx, k8sClient client.Client, namespace string, node *model.Node) (*serving.Service, error) {
+func validateKsvc(c context.Context, k8sClient client.Client, namespace string, node *model.Node) (*serving.Service, error) {
 	//TODO handle k8s client
-	return GetKsvcFromNode(k8sClient, c.Context, namespace, node)
+	return GetKsvcFromNode(k8sClient, c, namespace, node)
 }
 
 func GetKsvcFromNode(client client.Client, ctx context.Context, namespace string, node *model.Node) (*serving.Service, error) {
@@ -156,6 +132,28 @@ func getK8sClient() client.Client {
 	return k8sClient
 }
 
+func GetValidNodes(c context.Context, k8sClient client.Client, namespace string, sequence []string, payload model.PipelinePayload) ([]string, error) {
+	validNodes := []string{}
+	for _, nodeId := range sequence {
+
+		// fetch the node
+		node, err := GetNodeByID(payload, nodeId)
+		if err != nil {
+			return []string{}, fmt.Errorf("Invalid nodes found: node id -> " + nodeId)
+		}
+
+		// ensure it is a valid svc in the cluster
+		_, err = validateKsvc(c, k8sClient, namespace, node)
+		if err != nil {
+			fmt.Println("Ksvc not found: ", err)
+			return []string{}, fmt.Errorf("Node can not be mapped to a Ksvc: " + nodeId)
+		}
+
+		// add the nodes to validNodes
+		validNodes = append(validNodes, node.Data.FaasID)
+	}
+	return validNodes, nil
+}
 func ApplySequence(ctx context.Context, k8sClient client.Client, sequence flows.Sequence) error {
 	return k8sClient.Create(ctx, &sequence)
 }

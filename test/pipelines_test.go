@@ -20,17 +20,23 @@ import (
 	serving "knative.dev/serving/pkg/apis/serving/v1"
 )
 
+var testFaasList = []string{"func-1", "func-2", "func-3"}
+
 var _ = Describe("Pipelines", func() {
 	ctx := context.Background()
 
 	BeforeEach(func() {
 		By("Creating some test ksvc")
-		Expect(createKsvc(ctx, "func-1")).To(Succeed())
+		for _, faasId := range testFaasList {
+			Expect(createKsvc(ctx, faasId)).To(Succeed())
+		}
 	})
 
 	AfterEach(func() {
 		By("Deleting the test ksvc")
-		Expect(deleteKsvc(ctx, "func-1")).To(Succeed())
+		for _, faasId := range testFaasList {
+			Expect(deleteKsvc(ctx, faasId)).To(Succeed())
+		}
 	})
 
 	Context("When handling nodes and edges", func() {
@@ -229,6 +235,7 @@ var _ = Describe("Pipelines", func() {
 
 	Context("When validating the nodes and edges", func() {
 		It("should check the sequences against the node list", func() {
+			// if we somehow check a node that doesn't exist against the payload, throw an error
 			pipelinePayload := model.PipelinePayload{
 				Nodes: []model.Node{
 					{ID: "0", Data: model.NodeData{Label: "FaaS 0"}},
@@ -245,13 +252,60 @@ var _ = Describe("Pipelines", func() {
 			_, err := handlers.GetNodeByID(pipelinePayload, "4")
 			Expect(err).To(HaveOccurred())
 		})
+
+		It("should check the node list against the FaaS ids (working)", func() {
+			// front end should have done the validation so we do not pass in an invalid faas id
+			// but we do sanity checks to ensure the faas id is valid
+			pipelinePayload := model.PipelinePayload{
+				Nodes: []model.Node{
+					{ID: "0", Data: model.NodeData{Label: "FaaS 0", FaasID: "func-1"}},
+					{ID: "1", Data: model.NodeData{Label: "FaaS 1", FaasID: "func-2"}},
+					{ID: "2", Data: model.NodeData{Label: "FaaS 2", FaasID: "func-3"}},
+				},
+				Edges: []model.Edge{
+					{ID: "0-1", Source: "0", Target: "1"},
+					{ID: "1-2", Source: "1", Target: "2"},
+				},
+			}
+
+			_, sequences := helpers.TraverseGraph(
+				pipelinePayload.Nodes, pipelinePayload.Edges)
+
+			validNodes, err := handlers.GetValidNodes(ctx, k8sClient, namespace, sequences[0], pipelinePayload)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(validNodes)).To(BeEquivalentTo(3))
+		})
+
+		It("should check the node list against the FaaS ids (fail)", func() {
+			// if faas does not exist we throw an error
+			pipelinePayload := model.PipelinePayload{
+				Nodes: []model.Node{
+					{ID: "0", Data: model.NodeData{Label: "FaaS 0", FaasID: "func-1"}},
+					{ID: "1", Data: model.NodeData{Label: "FaaS 1", FaasID: "func-2"}},
+					{ID: "2", Data: model.NodeData{Label: "FaaS 2", FaasID: "func-4"}}, //invalid node
+				},
+				Edges: []model.Edge{
+					{ID: "0-1", Source: "0", Target: "1"},
+					{ID: "1-2", Source: "1", Target: "2"},
+				},
+			}
+
+			_, sequences := helpers.TraverseGraph(
+				pipelinePayload.Nodes, pipelinePayload.Edges)
+
+			validNodes, err := handlers.GetValidNodes(ctx, k8sClient, namespace, sequences[0], pipelinePayload)
+			Expect(err).To(HaveOccurred())
+			Expect(len(validNodes)).To(BeEquivalentTo(0))
+		})
 	})
 
 	Context("When managing knative resources", func() {
 		It("should check that initial ksvc is created successfully (test function)", func() {
-			ksvc, err := getKsvc(ctx, "func-1")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(ksvc.ObjectMeta.Name).To(BeEquivalentTo("func-1"))
+			for _, faasId := range testFaasList {
+				ksvc, err := getKsvc(ctx, faasId)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ksvc.ObjectMeta.Name).To(BeEquivalentTo(faasId))
+			}
 		})
 
 		It("should check that initial ksvc is created successfully (custom function)", func() {
