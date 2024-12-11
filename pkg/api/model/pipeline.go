@@ -2,10 +2,11 @@ package model
 
 // Node represents a single node in the pipeline
 type Node struct {
-	ID       string   `json:"id"`
-	Data     NodeData `json:"data"`
-	Position Position `json:"position"`
-	Type     string   `json:"type,omitempty"` // Optional field
+	ID         string   `json:"id"`
+	Data       NodeData `json:"data"`
+	Position   Position `json:"position"`
+	Type       string   `json:"type,omitempty"`       // Optional field
+	SequenceId string   `json:"sequenceId,omitempty"` // Optional field to update that the node is a pipeline
 }
 
 // NodeData represents the data within a node

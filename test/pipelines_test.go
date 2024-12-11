@@ -43,6 +43,23 @@ var _ = Describe("Pipelines", func() {
 		Expect(deleteAllSequences(ctx)).To(Succeed())
 	})
 
+	Context("when verifying the startup environment", func() {
+		It("should check that initial ksvc is created successfully (test function)", func() {
+			for _, faasId := range testFaasList {
+				ksvc, err := getKsvc(ctx, faasId)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ksvc.ObjectMeta.Name).To(BeEquivalentTo(faasId))
+			}
+		})
+
+		It("should check that initial ksvc is created successfully (custom function)", func() {
+			node := model.Node{ID: "0", Data: model.NodeData{Label: "func-1", FaasID: "func-1"}}
+			ksvc, err := handlers.GetKsvcFromNode(k8sClient, ctx, namespace, &node)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(ksvc.ObjectMeta.Name).To(BeEquivalentTo("func-1"))
+		})
+	})
+
 	Context("When handling nodes and edges", func() {
 		It("should test our simple sequence", func() {
 			/*
@@ -253,7 +270,7 @@ var _ = Describe("Pipelines", func() {
 				},
 			}
 			// invalid node 4
-			_, err := handlers.GetNodeByID(pipelinePayload, "4")
+			_, err := handlers.GetNodeByID(pipelinePayload.Nodes, "4")
 			Expect(err).To(HaveOccurred())
 		})
 
@@ -275,7 +292,7 @@ var _ = Describe("Pipelines", func() {
 			_, sequences := helpers.TraverseGraph(
 				pipelinePayload.Nodes, pipelinePayload.Edges)
 
-			validNodes, err := handlers.GetValidNodes(ctx, k8sClient, namespace, sequences[0], pipelinePayload)
+			validNodes, err := handlers.GetValidNodes(ctx, k8sClient, namespace, sequences[0], pipelinePayload.Nodes)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(validNodes)).To(BeEquivalentTo(3))
 		})
@@ -297,28 +314,13 @@ var _ = Describe("Pipelines", func() {
 			_, sequences := helpers.TraverseGraph(
 				pipelinePayload.Nodes, pipelinePayload.Edges)
 
-			validNodes, err := handlers.GetValidNodes(ctx, k8sClient, namespace, sequences[0], pipelinePayload)
+			validNodes, err := handlers.GetValidNodes(ctx, k8sClient, namespace, sequences[0], pipelinePayload.Nodes)
 			Expect(err).To(HaveOccurred())
 			Expect(len(validNodes)).To(BeEquivalentTo(0))
 		})
 	})
 
-	Context("When managing knative resources", func() {
-		It("should check that initial ksvc is created successfully (test function)", func() {
-			for _, faasId := range testFaasList {
-				ksvc, err := getKsvc(ctx, faasId)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(ksvc.ObjectMeta.Name).To(BeEquivalentTo(faasId))
-			}
-		})
-
-		It("should check that initial ksvc is created successfully (custom function)", func() {
-			node := model.Node{ID: "0", Data: model.NodeData{Label: "func-1", FaasID: "func-1"}}
-			ksvc, err := handlers.GetKsvcFromNode(k8sClient, ctx, namespace, &node)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(ksvc.ObjectMeta.Name).To(BeEquivalentTo("func-1"))
-		})
-
+	Context("When managing knative sequences", func() {
 		It("should correctly return errors for functions that do not exist", func() {
 			node := model.Node{ID: "0", Data: model.NodeData{Label: "abcdef", FaasID: "abcdef"}}
 			_, err := handlers.GetKsvcFromNode(k8sClient, ctx, namespace, &node)
@@ -375,6 +377,47 @@ var _ = Describe("Pipelines", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(len(createdSequence.Spec.Steps)).To(BeEquivalentTo(3))
+		})
+	})
+
+	Context("when managing knative parallels", func() {
+		It("should handle multiple parallels", func() {
+			/*
+				0 -> 1
+				|
+				V
+				2
+				The function should capture 0  as parallels because they have 2 child nodes.
+				0 has childs [1,2]
+
+				the sequences should be
+				1,
+				2
+
+				we label these nodes beforehand since we are only testing this function
+			*/
+			pipelinePayload := model.PipelinePayload{
+				Nodes: []model.Node{
+					{ID: "0", Data: model.NodeData{Label: "func-0", FaasID: "func-0"}},
+					{ID: "1", Data: model.NodeData{Label: "func-1", FaasID: "func-1"}, SequenceId: "def"},
+					{ID: "2", Data: model.NodeData{Label: "func-5", FaasID: "func-5"}, SequenceId: "abc"},
+				},
+				Edges: []model.Edge{
+					{ID: "0-1", Source: "0", Target: "1"},
+					{ID: "0-2", Source: "0", Target: "2"},
+				},
+			}
+
+			parallels, _ := helpers.TraverseGraph(pipelinePayload.Nodes, pipelinePayload.Edges)
+			_, exists := parallels["0"]
+			Expect(exists).To(BeTrue())
+
+			branches := parallels["0"]
+			parallel := handlers.TranslateParallel(branches, namespace, "random-parallel", pipelinePayload.Nodes)
+
+			Expect(len(parallel.Spec.Branches)).To(BeEquivalentTo(2))
+			Expect(parallel.Spec.Branches[0].Subscriber.Ref.Name).To(BeEquivalentTo("def"))
+			Expect(parallel.Spec.Branches[1].Subscriber.Ref.Name).To(BeEquivalentTo("abc"))
 		})
 	})
 
@@ -637,7 +680,7 @@ func applyManifests(ctx context.Context, pipelinePayload model.PipelinePayload) 
 	for i, sequence := range sequences {
 
 		// return a list of faas ids if the sequence is valid
-		validNodes, _ := handlers.GetValidNodes(ctx, k8sClient, namespace, sequence, pipelinePayload)
+		validNodes, _ := handlers.GetValidNodes(ctx, k8sClient, namespace, sequence, pipelinePayload.Nodes)
 
 		// with the valid nodes, construct our sequence
 		sequenceName := "mocha-sequence-" + strconv.Itoa(i)

@@ -59,20 +59,34 @@ func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code 
 	for _, sequence := range sequences {
 
 		// return a list of faas ids if the sequence is valid
-		validNodes, err := GetValidNodes(c, k8sClient, namespace, sequence, payload)
+		validNodes, err := GetValidNodes(c, k8sClient, namespace, sequence, payload.Nodes)
 		if err != nil {
 			fmt.Println("Unable to validate nodes: ", err)
 		}
 
 		// with the valid nodes, construct our sequence
 		sequenceName := "mocha-sequence-" + generateRandomString()
-		sequence := TranslateSequence(validNodes, namespace, sequenceName)
+		ksequence := TranslateSequence(validNodes, namespace, sequenceName)
 
-		err = ApplySequence(c, k8sClient, sequence)
+		err = ApplySequence(c, k8sClient, ksequence)
 		if err != nil {
 			fmt.Println("Unable to apply sequence: ", err)
 			break
 		}
+
+		// update the first node to set its sequence id
+		updateNode(payload.Nodes, sequence[0], sequenceName)
+
+	}
+
+	// handle parallels
+	for _, branches := range parallels {
+		// generate the parallel
+		parallelName := "mocha-parallel-" + generateRandomString()
+		kparallel := TranslateParallel(branches, namespace, parallelName, payload.Nodes)
+
+		fmt.Println(kparallel)
+		// apply the parallel
 	}
 
 	return http.StatusOK, map[string]interface{}{
@@ -82,19 +96,14 @@ func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code 
 	}
 }
 
-func GetNodeByID(payload model.PipelinePayload, id string) (*model.Node, error) {
-	for _, node := range payload.Nodes {
+func GetNodeByID(nodeList []model.Node, id string) (*model.Node, error) {
+	for _, node := range nodeList {
 		if node.ID == id {
 			return &node, nil // Return a pointer to the node
 		}
 	}
 	return nil, fmt.Errorf("Invalid nodes found: node id -> " + id)
 }
-
-// func validateKsvc(c context.Context, k8sClient client.Client, namespace string, node *model.Node) (*serving.Service, error) {
-// 	//TODO handle k8s client
-// 	return GetKsvcFromNode(k8sClient, c, namespace, node)
-// }
 
 func GetKsvcFromNode(client client.Client, ctx context.Context, namespace string, node *model.Node) (*serving.Service, error) {
 	ksvc := &serving.Service{}
@@ -132,12 +141,12 @@ func getK8sClient() client.Client {
 	return k8sClient
 }
 
-func GetValidNodes(c context.Context, k8sClient client.Client, namespace string, sequence []string, payload model.PipelinePayload) ([]string, error) {
+func GetValidNodes(c context.Context, k8sClient client.Client, namespace string, sequence []string, nodeList []model.Node) ([]string, error) {
 	validNodes := []string{}
 	for _, nodeId := range sequence {
 
 		// fetch the node
-		node, err := GetNodeByID(payload, nodeId)
+		node, err := GetNodeByID(nodeList, nodeId)
 		if err != nil {
 			return []string{}, fmt.Errorf("Invalid nodes found: node id -> " + nodeId)
 		}
@@ -154,8 +163,19 @@ func GetValidNodes(c context.Context, k8sClient client.Client, namespace string,
 	}
 	return validNodes, nil
 }
+
 func ApplySequence(ctx context.Context, k8sClient client.Client, sequence flows.Sequence) error {
 	return k8sClient.Create(ctx, &sequence)
+}
+
+func updateNode(nodeList []model.Node, sequenceStart string, SequenceId string) {
+	for i := range nodeList {
+		if nodeList[i].ID == sequenceStart {
+			nodeList[i].SequenceId = SequenceId
+			fmt.Printf("Updated node %s's SequenceId to %s\n", sequenceStart, SequenceId)
+			return
+		}
+	}
 }
 
 func TranslateSequence(faasIdList []string, namespace string, sequenceName string) flows.Sequence {
@@ -195,4 +215,41 @@ func generateRandomString() string {
 	randomNumber := rand.Intn(999999) + 1
 	// Convert the number to a string
 	return strconv.Itoa(randomNumber)
+}
+
+func TranslateParallel(branches []string, namespace string, parallelName string, nodeList []model.Node) flows.Parallel {
+	parallelBranches := []flows.ParallelBranch{}
+
+	for _, nodeId := range branches {
+		// for each nodeId, I need to know what the assigned sequence id is
+		node, _ := GetNodeByID(nodeList, nodeId)
+		sequenceId := node.SequenceId
+
+		parallelBranches = append(parallelBranches,
+			flows.ParallelBranch{
+				Subscriber: duck.Destination{
+					Ref: &duck.KReference{
+						APIVersion: "flows.knative.dev/v1",
+						Kind:       "Sequence",
+						Name:       sequenceId,
+					},
+				},
+			})
+	}
+
+	return flows.Parallel{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      parallelName,
+			Namespace: namespace,
+		},
+		Spec: flows.ParallelSpec{
+			Branches: parallelBranches,
+			ChannelTemplate: &messaging.ChannelTemplateSpec{
+				TypeMeta: v1.TypeMeta{
+					APIVersion: "messaging.knative.dev/v1",
+					Kind:       "InMemoryChannel",
+				},
+			},
+		},
+	}
 }
