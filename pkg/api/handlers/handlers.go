@@ -62,6 +62,7 @@ func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code 
 		validNodes, err := GetValidNodes(c, k8sClient, namespace, sequence, payload.Nodes)
 		if err != nil {
 			fmt.Println("Unable to validate nodes: ", err)
+			return http.StatusBadRequest, err
 		}
 
 		// with the valid nodes, construct our sequence
@@ -71,7 +72,7 @@ func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code 
 		err = ApplySequence(c, k8sClient, ksequence)
 		if err != nil {
 			fmt.Println("Unable to apply sequence: ", err)
-			break
+			return http.StatusBadRequest, err
 		}
 
 		// update the first node to set its sequence id
@@ -85,8 +86,12 @@ func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code 
 		parallelName := "mocha-parallel-" + generateRandomString()
 		kparallel := TranslateParallel(branches, namespace, parallelName, payload.Nodes)
 
-		fmt.Println(kparallel)
 		// apply the parallel
+		err := ApplyParallel(c, k8sClient, kparallel)
+		if err != nil {
+			fmt.Println("Unable to apply sequence: ", err)
+			return http.StatusBadRequest, err
+		}
 	}
 
 	return http.StatusOK, map[string]interface{}{
@@ -252,4 +257,8 @@ func TranslateParallel(branches []string, namespace string, parallelName string,
 			},
 		},
 	}
+}
+
+func ApplyParallel(ctx context.Context, k8sClient client.Client, parallel flows.Parallel) error {
+	return k8sClient.Create(ctx, &parallel)
 }
