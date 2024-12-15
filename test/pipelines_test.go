@@ -3,7 +3,6 @@ package main_test
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -586,10 +585,12 @@ var _ = Describe("Pipelines", func() {
 				},
 			}
 
-			applyManifests(ctx, pipelinePayload)
-			//expect 1 sequence to be deployed
+			err := handlers.ProcessPayload(k8sClient, ctx, pipelinePayload, namespace)
+			Expect(err).NotTo(HaveOccurred())
+
 			sequenceList, err := getSequenceList(ctx)
 			Expect(err).NotTo(HaveOccurred())
+
 			Expect(len(sequenceList.Items)).To(BeEquivalentTo(4))
 			Expect(len(sequenceList.Items[0].Spec.Steps)).To(BeEquivalentTo(1))
 			Expect(len(sequenceList.Items[1].Spec.Steps)).To(BeEquivalentTo(1))
@@ -704,24 +705,5 @@ func getActualOutput(pipelinePayload model.PipelinePayload) map[string]interface
 	return map[string]interface{}{
 		"parallels": parallels,
 		"sequences": sequences,
-	}
-}
-
-func applyManifests(ctx context.Context, pipelinePayload model.PipelinePayload) {
-	// assume happy path since all functions have been tested
-	_, sequences := helpers.TraverseGraph(
-		pipelinePayload.Nodes, pipelinePayload.Edges)
-
-	for i, sequence := range sequences {
-
-		// return a list of faas ids if the sequence is valid
-		validNodes, _ := handlers.GetValidNodes(ctx, k8sClient, namespace, sequence, pipelinePayload.Nodes)
-
-		// with the valid nodes, construct our sequence
-		sequenceName := "mocha-sequence-" + strconv.Itoa(i)
-		sequence := handlers.TranslateSequence(validNodes, namespace, sequenceName)
-
-		//TODO still need to test parallel
-		handlers.ApplySequence(ctx, k8sClient, sequence)
 	}
 }
