@@ -50,54 +50,15 @@ func (k *HandlerGroup) addPipeline(s *server.APIServer, c *server.APICtx) (code 
 		return http.StatusBadRequest, err
 	}
 
-	// identify the parallels and sequences
-	parallels, sequences := helpers.TraverseGraph(
-		payload.Nodes, payload.Edges)
+	// call func to do each step
+	err := ProcessPayload(k8sClient, c, payload, namespace)
 
-	// handle sequences
-	// for each sequence in the sequences list, construct the knative sequence
-	for _, sequence := range sequences {
-
-		// return a list of faas ids if the sequence is valid
-		validNodes, err := GetValidNodes(c, k8sClient, namespace, sequence, payload.Nodes)
-		if err != nil {
-			fmt.Println("Unable to validate nodes: ", err)
-			return http.StatusBadRequest, err
-		}
-
-		// with the valid nodes, construct our sequence
-		sequenceName := "mocha-sequence-" + generateRandomString()
-		ksequence := TranslateSequence(validNodes, namespace, sequenceName)
-
-		err = ApplySequence(c, k8sClient, ksequence)
-		if err != nil {
-			fmt.Println("Unable to apply sequence: ", err)
-			return http.StatusBadRequest, err
-		}
-
-		// update the first node to set its sequence id
-		updateNode(payload.Nodes, sequence[0], sequenceName)
-
-	}
-
-	// handle parallels
-	for _, branches := range parallels {
-		// generate the parallel
-		parallelName := "mocha-parallel-" + generateRandomString()
-		kparallel := TranslateParallel(branches, namespace, parallelName, payload.Nodes)
-
-		// apply the parallel
-		err := ApplyParallel(c, k8sClient, kparallel)
-		if err != nil {
-			fmt.Println("Unable to apply sequence: ", err)
-			return http.StatusBadRequest, err
-		}
+	if err != nil{
+		return http.StatusBadRequest, err
 	}
 
 	return http.StatusOK, map[string]interface{}{
 		"message":   "success",
-		"parallels": parallels,
-		"sequences": sequences,
 	}
 }
 
@@ -261,4 +222,51 @@ func TranslateParallel(branches []string, namespace string, parallelName string,
 
 func ApplyParallel(ctx context.Context, k8sClient client.Client, parallel flows.Parallel) error {
 	return k8sClient.Create(ctx, &parallel)
+}
+
+func ProcessPayload(k8sClient client.Client, ctx context.Context, payload model.PipelinePayload, namespace string) error {
+	// identify the parallels and sequences
+	parallels, sequences := helpers.TraverseGraph(
+		payload.Nodes, payload.Edges)
+
+	// handle sequences
+	// for each sequence in the sequences list, construct the knative sequence
+	for _, sequence := range sequences {
+
+		// return a list of faas ids if the sequence is valid
+		validNodes, err := GetValidNodes(ctx, k8sClient, namespace, sequence, payload.Nodes)
+		if err != nil {
+			fmt.Println("Unable to validate nodes: ", err)
+			return err
+		}
+
+		// with the valid nodes, construct our sequence
+		sequenceName := "mocha-sequence-" + generateRandomString()
+		ksequence := TranslateSequence(validNodes, namespace, sequenceName)
+
+		err = ApplySequence(ctx, k8sClient, ksequence)
+		if err != nil {
+			fmt.Println("Unable to apply sequence: ", err)
+			return err
+		}
+
+		// update the first node to set its sequence id
+		updateNode(payload.Nodes, sequence[0], sequenceName)
+
+	}
+
+	// handle parallels
+	for _, branches := range parallels {
+		// generate the parallel
+		parallelName := "mocha-parallel-" + generateRandomString()
+		kparallel := TranslateParallel(branches, namespace, parallelName, payload.Nodes)
+
+		// apply the parallel
+		err := ApplyParallel(ctx, k8sClient, kparallel)
+		if err != nil {
+			fmt.Println("Unable to apply sequence: ", err)
+			return err
+		}
+	}
+	return nil
 }

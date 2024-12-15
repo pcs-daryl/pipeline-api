@@ -36,10 +36,8 @@ var _ = Describe("Pipelines", func() {
 	})
 
 	AfterEach(func() {
-		By("Deleting the test ksvc")
-		for _, faasId := range testFaasList {
-			Expect(deleteKsvc(ctx, faasId)).To(Succeed())
-		}
+		By("Cleaning up the env")
+		Expect(deleteAllKsvc(ctx)).To(Succeed())
 		Expect(deleteAllSequences(ctx)).To(Succeed())
 	})
 
@@ -423,6 +421,7 @@ var _ = Describe("Pipelines", func() {
 
 	Context("When testing the full flow", func() {
 		//TODO test parallels when ready
+		//TODO use the new function
 		It("should handle simple sequences 1", func() {
 			/*
 				0 -> 1 -> 2 -> 3
@@ -443,23 +442,32 @@ var _ = Describe("Pipelines", func() {
 				},
 			}
 
-			applyManifests(ctx, pipelinePayload)
-
-			//expect one sequence to be deployed
-			createdSequence, err := getSequence(ctx, "mocha-sequence-0")
+			err := handlers.ProcessPayload(k8sClient, ctx, pipelinePayload, namespace)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(len(createdSequence.Spec.Steps)).To(BeEquivalentTo(4))
+
+			sequenceList, err := getSequenceList(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			
+			//expect one sequence to be deployed
+			Expect(len(sequenceList.Items)).To(BeEquivalentTo(1))
+
+			steps := sequenceList.Items[0].Spec.Steps
+			Expect(len(steps)).To(BeEquivalentTo(4))
+			Expect(steps[0].Destination.Ref.Name).To(BeEquivalentTo("func-1"))
+			Expect(steps[1].Destination.Ref.Name).To(BeEquivalentTo("func-2"))
+			Expect(steps[2].Destination.Ref.Name).To(BeEquivalentTo("func-3"))
+			Expect(steps[3].Destination.Ref.Name).To(BeEquivalentTo("func-4"))
 		})
 
 		It("should handle simple sequences 2", func() {
 			/*
-				0 -> 1 -> 2 -> 3
+				4 -> 4 -> 4 -> 4
 
-				simple example of a sequence
+				simple example of a sequence with repeated functions
 			*/
 			pipelinePayload := model.PipelinePayload{
 				Nodes: []model.Node{
-					{ID: "0", Data: model.NodeData{Label: "func-1", FaasID: "func-1"}},
+					{ID: "0", Data: model.NodeData{Label: "func-4", FaasID: "func-4"}},
 					{ID: "1", Data: model.NodeData{Label: "func-4", FaasID: "func-4"}},
 					{ID: "2", Data: model.NodeData{Label: "func-4", FaasID: "func-4"}},
 					{ID: "3", Data: model.NodeData{Label: "func-4", FaasID: "func-4"}},
@@ -471,12 +479,21 @@ var _ = Describe("Pipelines", func() {
 				},
 			}
 
-			applyManifests(ctx, pipelinePayload)
+			err := handlers.ProcessPayload(k8sClient, ctx, pipelinePayload, namespace)
+			Expect(err).NotTo(HaveOccurred())
+
+			sequenceList, err := getSequenceList(ctx)
+			Expect(err).NotTo(HaveOccurred())
 
 			//expect one sequence to be deployed
-			createdSequence, err := getSequence(ctx, "mocha-sequence-0")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(len(createdSequence.Spec.Steps)).To(BeEquivalentTo(4))
+			Expect(len(sequenceList.Items)).To(BeEquivalentTo(1))
+
+			steps := sequenceList.Items[0].Spec.Steps
+			Expect(len(steps)).To(BeEquivalentTo(4))
+			Expect(steps[0].Destination.Ref.Name).To(BeEquivalentTo("func-4"))
+			Expect(steps[1].Destination.Ref.Name).To(BeEquivalentTo("func-4"))
+			Expect(steps[2].Destination.Ref.Name).To(BeEquivalentTo("func-4"))
+			Expect(steps[3].Destination.Ref.Name).To(BeEquivalentTo("func-4"))
 		})
 
 		It("should test a more complicated tree", func() {
@@ -517,12 +534,21 @@ var _ = Describe("Pipelines", func() {
 					{ID: "5-6", Source: "5", Target: "6"},
 				},
 			}
-			applyManifests(ctx, pipelinePayload)
 
-			//expect 3 sequence to be deployed
+			err := handlers.ProcessPayload(k8sClient, ctx, pipelinePayload, namespace)
+			Expect(err).NotTo(HaveOccurred())
+
 			sequenceList, err := getSequenceList(ctx)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(len(sequenceList.Items)).To(BeEquivalentTo(3))
+
+			//expect 3 sequence to be deployed
+			Expect(sequenceList.Items).To(HaveLen(3))
+
+			// check that the sequence starts are labelled correctly
+			Expect(pipelinePayload.Nodes[2].Data.FaasID).NotTo(BeNil())
+			Expect(pipelinePayload.Nodes[4].Data.FaasID).NotTo(BeNil())
+			Expect(pipelinePayload.Nodes[5].Data.FaasID).NotTo(BeNil())
+			Expect(pipelinePayload.Nodes[1].Data.FaasID).NotTo(BeNil())
 		})
 
 		It("should test a BST", func() {
@@ -641,6 +667,15 @@ func getSequenceList(ctx context.Context) (*flows.SequenceList, error) {
 	ksequenceList := &flows.SequenceList{}
 	err := k8sClient.List(ctx, ksequenceList)
 	return ksequenceList, err
+}
+
+func deleteAllKsvc(ctx context.Context) error {
+	for _, faasId := range testFaasList{
+		if err := deleteKsvc(ctx, faasId); err != nil {
+			return fmt.Errorf("failed to delete faas %s in namespace %s: %w",faasId, namespace, err)
+		}
+	}
+	return nil
 }
 
 func deleteAllSequences(ctx context.Context) error {
