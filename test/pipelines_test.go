@@ -38,6 +38,7 @@ var _ = Describe("Pipelines", func() {
 		By("Cleaning up the env")
 		Expect(deleteAllKsvc(ctx)).To(Succeed())
 		Expect(deleteAllSequences(ctx)).To(Succeed())
+		Expect(deleteAllParallels(ctx)).To(Succeed())
 	})
 
 	Context("when verifying the startup environment", func() {
@@ -419,8 +420,6 @@ var _ = Describe("Pipelines", func() {
 	})
 
 	Context("When testing the full flow", func() {
-		//TODO test parallels when ready
-		//TODO use the new function
 		It("should handle simple sequences 1", func() {
 			/*
 				0 -> 1 -> 2 -> 3
@@ -448,7 +447,7 @@ var _ = Describe("Pipelines", func() {
 			Expect(err).NotTo(HaveOccurred())
 			
 			//expect one sequence to be deployed
-			Expect(len(sequenceList.Items)).To(BeEquivalentTo(1))
+			Expect(sequenceList.Items).To(HaveLen(1))
 
 			steps := sequenceList.Items[0].Spec.Steps
 			Expect(len(steps)).To(BeEquivalentTo(4))
@@ -456,6 +455,11 @@ var _ = Describe("Pipelines", func() {
 			Expect(steps[1].Destination.Ref.Name).To(BeEquivalentTo("func-2"))
 			Expect(steps[2].Destination.Ref.Name).To(BeEquivalentTo("func-3"))
 			Expect(steps[3].Destination.Ref.Name).To(BeEquivalentTo("func-4"))
+
+			//ensure no parallels created
+			parallelList, err := getParallelList(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(parallelList.Items).To(HaveLen(0))
 		})
 
 		It("should handle simple sequences 2", func() {
@@ -493,6 +497,11 @@ var _ = Describe("Pipelines", func() {
 			Expect(steps[1].Destination.Ref.Name).To(BeEquivalentTo("func-4"))
 			Expect(steps[2].Destination.Ref.Name).To(BeEquivalentTo("func-4"))
 			Expect(steps[3].Destination.Ref.Name).To(BeEquivalentTo("func-4"))
+
+			//ensure no parallels created
+			parallelList, err := getParallelList(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(parallelList.Items).To(HaveLen(0))
 		})
 
 		It("should test a more complicated tree", func() {
@@ -544,10 +553,19 @@ var _ = Describe("Pipelines", func() {
 			Expect(sequenceList.Items).To(HaveLen(3))
 
 			// check that the sequence starts are labelled correctly
-			Expect(pipelinePayload.Nodes[2].Data.FaasID).NotTo(BeNil())
-			Expect(pipelinePayload.Nodes[4].Data.FaasID).NotTo(BeNil())
-			Expect(pipelinePayload.Nodes[5].Data.FaasID).NotTo(BeNil())
-			Expect(pipelinePayload.Nodes[1].Data.FaasID).NotTo(BeNil())
+			Expect(pipelinePayload.Nodes[2].SequenceId).NotTo(BeEquivalentTo(""))
+			Expect(pipelinePayload.Nodes[4].SequenceId).NotTo(BeEquivalentTo(""))
+			Expect(pipelinePayload.Nodes[5].SequenceId).NotTo(BeEquivalentTo(""))
+
+			Expect(pipelinePayload.Nodes[1].SequenceId).To(BeEquivalentTo(""))
+			Expect(pipelinePayload.Nodes[3].SequenceId).To(BeEquivalentTo(""))
+			Expect(pipelinePayload.Nodes[6].SequenceId).To(BeEquivalentTo(""))
+
+			// check that there are 2 parallels
+			parallelList, err := getParallelList(ctx)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(parallelList.Items).To(HaveLen(2))
 		})
 
 		It("should test a BST", func() {
@@ -596,6 +614,12 @@ var _ = Describe("Pipelines", func() {
 			Expect(len(sequenceList.Items[1].Spec.Steps)).To(BeEquivalentTo(1))
 			Expect(len(sequenceList.Items[2].Spec.Steps)).To(BeEquivalentTo(1))
 			Expect(len(sequenceList.Items[3].Spec.Steps)).To(BeEquivalentTo(1))
+
+			// check that there are 3 parallels
+			parallelList, err := getParallelList(ctx)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(parallelList.Items).To(HaveLen(3))
 		})
 	})
 })
@@ -670,6 +694,12 @@ func getSequenceList(ctx context.Context) (*flows.SequenceList, error) {
 	return ksequenceList, err
 }
 
+func getParallelList(ctx context.Context) (*flows.ParallelList, error) {
+	kparallelList := &flows.ParallelList{}
+	err := k8sClient.List(ctx, kparallelList)
+	return kparallelList, err
+}
+
 func deleteAllKsvc(ctx context.Context) error {
 	for _, faasId := range testFaasList{
 		if err := deleteKsvc(ctx, faasId); err != nil {
@@ -691,6 +721,23 @@ func deleteAllSequences(ctx context.Context) error {
 	for _, sequence := range sequenceList.Items {
 		if err := k8sClient.Delete(ctx, &sequence); err != nil {
 			return fmt.Errorf("failed to delete sequence %s in namespace %s: %w", sequence.Name, namespace, err)
+		}
+	}
+	return nil
+}
+
+func deleteAllParallels(ctx context.Context) error {
+	// Define a list to hold all Knative parallels
+	parallelList := &flows.ParallelList{}
+	// List all parallels in the given namespace
+	if err := k8sClient.List(ctx, parallelList, client.InNamespace(namespace)); err != nil {
+		return fmt.Errorf("failed to list parallels in namespace %s: %w", namespace, err)
+	}
+
+	// Iterate through each sequence and delete it
+	for _, parallel := range parallelList.Items {
+		if err := k8sClient.Delete(ctx, &parallel); err != nil {
+			return fmt.Errorf("failed to delete parallel %s in namespace %s: %w", parallel.Name, namespace, err)
 		}
 	}
 	return nil
